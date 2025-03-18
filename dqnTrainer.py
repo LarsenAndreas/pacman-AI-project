@@ -9,6 +9,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
+from typing import Union
+
+from gymnasium.spaces import Discrete
+import gymnasium as gym
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -88,7 +94,7 @@ def optimize_model():
     optimizer.zero_grad()
     loss.backward()
     # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
 
@@ -176,6 +182,28 @@ def training_loop():
     plt.show()
 
 
+class rlPacman(gym.Env[np.ndarray, Union[int, np.ndarray]]):
+    def __init__(self):
+        self.action_space = Discrete(5)
+
+
+    def step(self, action):
+        state = ...
+        reward = ...
+        done = ...
+        info = ...
+        return state, reward, done, info
+
+    def reset(self):
+        
+        state = ...
+        info = ...
+        return state, info
+    
+
+        
+    
+
 if __name__ == "__main__":
     BATCH_SIZE = 128
     GAMMA = 0.99
@@ -184,6 +212,8 @@ if __name__ == "__main__":
     EPS_DECAY = 1000
     TAU = 0.005
     LR = 1e-4
+
+    env = rlPacman()
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
