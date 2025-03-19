@@ -13,7 +13,7 @@ import torch.optim as optim
 import numpy as np
 from typing import Union
 
-from gymnasium.spaces import Discrete
+from pacman_gymnasium import PacmanEnv
 import gymnasium as gym
 
 
@@ -183,41 +183,37 @@ def training_loop():
     plt.show()
 
 
-class rlPacman(gym.Env[np.ndarray, Union[int, np.ndarray]]):
-    def __init__(self):
-        self.action_space = Discrete(5)
-        self.game_state: GameState = None
-
-    def step(self, action):
-        
-        new_state = self.game_state.generatePacmanSuccessor(action) # TODO: Map action to pacman action
-        reward = ...
-        done = ...
-        info = ...
-
-        # Construct input matrix from state values.
-        observation = np.array(state.getWalls().data, dtype="float32")
-
-        food = np.array(state.getFood().data, dtype="float32")
-        observation[:food.shape[0], :food.shape[1]] += 2 * food
-        
-        (i, j) = state.getPacmanPosition()
-        observation[i, j] = 3
-
-        for (i, j) in state.getGhostPositions():
-            observation[int(i), int(j)] = 4
-
-        return observation, reward, done, info
-
-    def reset(self):
-        state = ...
-        info = ...
-        return state, info
+#class rlPacman(gym.Env[np.ndarray, Union[int, np.ndarray]]):
+#    def __init__(self):
+#        self.action_space = Discrete(5)
+#        self.game_state: GameState = None
+#
+#    def step(self, action):
+#        
+#        new_state = self.game_state.generatePacmanSuccessor(action) # TODO: Map action to pacman action
+#        reward = ...
+#        done = ...
+#        info = ...
+#
+#        # Construct input matrix from state values.
+#        observation = np.array(state.getWalls().data, dtype="float32")
+#
+#        food = np.array(state.getFood().data, dtype="float32")
+#        observation[:food.shape[0], :food.shape[1]] += 2 * food
+#        
+#        (i, j) = state.getPacmanPosition()
+#        observation[i, j] = 3
+#
+#        for (i, j) in state.getGhostPositions():
+#            observation[int(i), int(j)] = 4
+#
+#        return observation, reward, done, info
+#
+#    def reset(self):
+#        state = ...
+#        info = ...
+#        return state, info
     
-
-        
-    
-
 if __name__ == "__main__":
     BATCH_SIZE = 128
     GAMMA = 0.99
@@ -227,7 +223,8 @@ if __name__ == "__main__":
     TAU = 0.005
     LR = 1e-4
 
-    env = rlPacman()
+    # TODO: We need to give it an initial state
+    env = PacmanEnv()
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n

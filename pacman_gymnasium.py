@@ -17,7 +17,7 @@ from gym.envs.classic_control import utils
 from gym.error import DependencyNotInstalled
 
 
-class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
+class PacmanEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     """
     ### Description
 
@@ -132,7 +132,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.steps_beyond_terminated += 1
             reward = 0.0
 
-        return self.constructInputMatrix(self.state), reward, terminated, False, {}
+        return self.constructInputMatrix(self.state).flatten(), reward, terminated, False, {}
 
     def constructInputMatrix(self, state: GameState) -> ArrayLike:
         """Constructs an input matrix based on the given state."""
