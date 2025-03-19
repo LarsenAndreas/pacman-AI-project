@@ -3,6 +3,7 @@ import random
 from collections import deque, namedtuple
 from itertools import count
 
+from pacman import GameState
 import matplotlib
 import matplotlib.pyplot as plt
 import torch
@@ -185,17 +186,30 @@ def training_loop():
 class rlPacman(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def __init__(self):
         self.action_space = Discrete(5)
-
+        self.game_state: GameState = None
 
     def step(self, action):
-        state = ...
+        
+        new_state = self.game_state.generatePacmanSuccessor(action) # TODO: Map action to pacman action
         reward = ...
         done = ...
         info = ...
-        return state, reward, done, info
+
+        # Construct input matrix from state values.
+        observation = np.array(state.getWalls().data, dtype="float32")
+
+        food = np.array(state.getFood().data, dtype="float32")
+        observation[:food.shape[0], :food.shape[1]] += 2 * food
+        
+        (i, j) = state.getPacmanPosition()
+        observation[i, j] = 3
+
+        for (i, j) in state.getGhostPositions():
+            observation[int(i), int(j)] = 4
+
+        return observation, reward, done, info
 
     def reset(self):
-        
         state = ...
         info = ...
         return state, info
