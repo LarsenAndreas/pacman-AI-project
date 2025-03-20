@@ -152,11 +152,10 @@ class PacmanEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
     def reset(
         self,
-        state: GameState,
         seed: Optional[int] = None,
         options: Optional[dict] = None,
     ):
         super().reset(seed=seed) # Might not be needed, but was included in the original code.
-        self.state = deepcopy(state)
+        self.state = deepcopy(self.initial_state)
 
-        return self.constructInputMatrix(state).flatten(), {}
+        return self.constructInputMatrix(self.state).flatten(), {}
