@@ -13,7 +13,7 @@ import torch.optim as optim
 import numpy as np
 from typing import Union
 
-from pacmanGymnasium import PacmanEnv
+from pacmanGymnasiumWithVector import PacmanEnv
 import gymnasium as gym
 
 
@@ -52,7 +52,6 @@ class DQN(nn.Module):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
-
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
@@ -97,7 +96,6 @@ def optimize_model():
     # In-place gradient clipping
     # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
-
 
 def select_action(state):
     global steps_done
@@ -225,6 +223,7 @@ if __name__ == "__main__":
 
     # TODO: We need to give it an initial state
     env = PacmanEnv()
+    env.set_initial_state(layout.getLayout("knownMedium"))
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
