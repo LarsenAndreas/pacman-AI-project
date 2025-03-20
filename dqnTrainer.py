@@ -13,7 +13,7 @@ import torch.optim as optim
 import numpy as np
 from typing import Union
 
-from pacman_gymnasium import PacmanEnv
+from pacmanGymnasium import PacmanEnv
 import gymnasium as gym
 
 
