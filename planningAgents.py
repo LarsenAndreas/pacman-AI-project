@@ -184,14 +184,15 @@ class PlanningAgent(game.Agent):
         
         episode_scores = []
         start = time.time()
-        pbar = tqdm(total=1.0, desc="Training")
-        while (t_used := time.time() - start) < 300: # Total time budget of 10 minutes
+        pbar = tqdm(total=1.0, desc="Training", leave=True, position=0, colour="green")
+        pbar_ep = tqdm(desc="Episode", leave=True, position=1)
+        while (t_used := time.time() - start) < 60: # Total time budget of 10 minutes
             print(t_used)
-            pbar.update(300 / t_used)
+            pbar.update(60 / t_used)
             # Initialize the environment and get its state
             obs, info = env.reset()
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-            pbar_ep = tqdm(desc="Episode")
+
             for t in count():
                 pbar_ep.update()
                 action, steps_done = select_action(policy_net, obs_tensor, env, steps_done)
@@ -226,7 +227,7 @@ class PlanningAgent(game.Agent):
                 if done:
                     episode_scores.append(env.state.getScore())
                     plot_scores(episode_scores)
-                    pbar_ep.close()
+                    pbar_ep.reset()
                     break
 
         env.close()
