@@ -655,12 +655,14 @@ def loadAgent(pacman, nographics):
             try:
                 module = __import__(modulename[:-3])
             except ImportError:
+                print(modulename)
                 continue
             if pacman in dir(module):
                 if nographics and modulename == 'keyboardAgents.py':
                     raise Exception(
                         'Using the keyboard requires graphics (not text display)')
                 return getattr(module, pacman)
+            
     raise Exception('The agent ' + pacman +
                     ' is not specified in any *Agents.py.')
 

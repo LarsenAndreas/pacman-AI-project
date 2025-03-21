@@ -22,19 +22,19 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from typing import Union
-from tqdm import tqdm
 
 from pacmanGymnasiumWithVector import PacmanEnv, _get_direction, _get_obs
 import gymnasium as gym
 
 BATCH_SIZE = 128
 GAMMA = 0.99
-EPS_START = 0.9
+EPS_START = 0.8
 EPS_END = 0.05
 EPS_DECAY = 1000
-TAU = 0.01
+TAU = 0.05
 LR = 1e-3
-N_HIDDEN = 128
+N_HIDDEN = 2048
+MEMORY_CAPACITY = 100_000
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -42,8 +42,8 @@ Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"
 
 class ReplayMemory(object):
 
-    def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+    def __init__(self):
+        self.memory = deque([], maxlen=MEMORY_CAPACITY)
 
     def push(self, *args):
         """Save a transition"""
@@ -62,14 +62,18 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_observations, N_HIDDEN)
         self.layer2 = nn.Linear(N_HIDDEN, N_HIDDEN)
-        self.layer3 = nn.Linear(N_HIDDEN, n_actions)
+        self.layer3 = nn.Linear(N_HIDDEN, N_HIDDEN)
+        self.layer4 = nn.Linear(N_HIDDEN, N_HIDDEN)
+        self.layer5 = nn.Linear(N_HIDDEN, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        x = F.relu(self.layer3(x))
+        x = F.relu(self.layer4(x))
+        return self.layer5(x)
 
 def optimize_model(policy_net: DQN, target_net: DQN, memory: ReplayMemory, optimizer: optim.AdamW):
     if len(memory) < BATCH_SIZE:
@@ -178,28 +182,24 @@ class PlanningAgent(game.Agent):
         target_net.load_state_dict(policy_net.state_dict())
         
         optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-        memory = ReplayMemory(10000)
+        memory = ReplayMemory()
         
         steps_done = 0
         
         episode_scores = []
         start = time.time()
-        pbar = tqdm(total=1.0, desc="Training")
-        while (t_used := time.time() - start) < 300: # Total time budget of 10 minutes
-            print(t_used)
-            pbar.update(300 / t_used)
+        #pbar = tqdm(total=1.0, desc="Training")
+        while (t_used := time.time() - start) < 60 * 60: # Total time budget of 10 minutes
+            #pbar.update(300 / t_used)
             # Initialize the environment and get its state
             obs, info = env.reset()
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-            pbar_ep = tqdm(desc="Episode")
             for t in count():
-                pbar_ep.update()
                 action, steps_done = select_action(policy_net, obs_tensor, env, steps_done)
                 observation, reward, terminated, truncated, _ = env.step(action.item())
                 reward = torch.tensor([reward], device=device)
                 done = terminated or truncated
 
-                pbar_ep.set_postfix({"reward": reward.item(), "action": action.item(), "terminated": terminated, "truncated": truncated})
 
                 if terminated:
                     next_obs_tensor = None
@@ -225,12 +225,12 @@ class PlanningAgent(game.Agent):
                 
                 if done:
                     episode_scores.append(env.state.getScore())
+                    print(f"Score: {episode_scores[-1]}, time used: {t_used / (60 * 60) * 100:.1f}%")
                     plot_scores(episode_scores)
-                    pbar_ep.close()
                     break
 
         env.close()
-        pbar.close()
+        #pbar.close()
 
         self.policy_net = policy_net
         print("Training complete!")
