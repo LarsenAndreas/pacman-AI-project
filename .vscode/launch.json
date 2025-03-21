@@ -17,7 +17,8 @@
             "type": "debugpy",
             "request": "launch",
             "program": "pacman.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args": ["-p", "PlanningAgent", "-l", "knownMedium"]
         }
     ]
 }

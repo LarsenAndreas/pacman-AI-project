@@ -22,6 +22,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from typing import Union
+from tqdm import tqdm
 
 from pacmanGymnasiumWithVector import PacmanEnv, _get_direction, _get_obs
 import gymnasium as gym
@@ -70,8 +71,6 @@ class DQN(nn.Module):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def optimize_model(policy_net: DQN, target_net: DQN, memory: ReplayMemory, optimizer: optim.AdamW):
     if len(memory) < BATCH_SIZE:
@@ -186,15 +185,22 @@ class PlanningAgent(game.Agent):
         
         episode_scores = []
         start = time.time()
-        while time.time() - start < 300: # Total time budget of 10 minutes
+        pbar = tqdm(total=1.0, desc="Training")
+        while (t_used := time.time() - start) < 300: # Total time budget of 10 minutes
+            print(t_used)
+            pbar.update(300 / t_used)
             # Initialize the environment and get its state
             obs, info = env.reset()
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+            pbar_ep = tqdm(desc="Episode")
             for t in count():
+                pbar_ep.update()
                 action, steps_done = select_action(policy_net, obs_tensor, env, steps_done)
                 observation, reward, terminated, truncated, _ = env.step(action.item())
                 reward = torch.tensor([reward], device=device)
                 done = terminated or truncated
+
+                pbar_ep.set_postfix({"reward": reward.item(), "action": action.item(), "terminated": terminated, "truncated": truncated})
 
                 if terminated:
                     next_obs_tensor = None
@@ -221,11 +227,14 @@ class PlanningAgent(game.Agent):
                 if done:
                     episode_scores.append(env.state.getScore())
                     plot_scores(episode_scores)
+                    pbar_ep.close()
                     break
 
         env.close()
+        pbar.close()
 
         self.policy_net = policy_net
+        print("Training complete!")
 
     def getAction(self, state : GameState) -> Directions:
         # Time limit: approx 1 second
