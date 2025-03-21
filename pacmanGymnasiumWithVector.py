@@ -83,6 +83,7 @@ class PacmanEnv(gym.Env):
         self,
     ):
         super().reset()
+        self.steps = 0
         self.state = deepcopy(self.initial_state)
 
         return _get_obs(self.state, self._w, self._h), self._get_info()
