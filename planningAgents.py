@@ -33,12 +33,11 @@ EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.01
 LR = 1e-3
-N_HIDDEN = 1024
+N_HIDDEN = 128
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"))
-
 
 class ReplayMemory(object):
 
