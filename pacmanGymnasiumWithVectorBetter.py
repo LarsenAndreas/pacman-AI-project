@@ -19,6 +19,7 @@ def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
     """length modifier is: distance to closest food - distance to closest ghost, computed using BFS."""
     min_distance_to_food, min_distance_to_ghost = None, None
     if np.sum(np.array(state.getFood().data, dtype="int64")) == 0:
+        print("WTF")
         min_distance_to_food = 0 # We have won, so we dont care anymore!
 
     fronteir = {state.getPacmanPosition()}
@@ -39,6 +40,9 @@ def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
         fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
 
     return (min_distance_to_ghost, min_distance_to_food)
+
+def sigmoid (x) -> float:
+    return 1 / (1 + np.exp(-x))
 
 class PacmanEnv(gym.Env):
 
@@ -91,8 +95,14 @@ class PacmanEnv(gym.Env):
         observation = self._get_obs(self.state)
 
         # TODO
-        new_length_modifiers = compute_length_modifiers(self.state)
-        reward = self.state.data.scoreChange + (new_length_modifiers[0] - self.length_modifiers[0]) + (self.length_modifiers[1] - new_length_modifiers[1]) # This is the change in score from the action
+        new_length_modifiers = compute_length_modifiers(self.state) # (min_dist_ghost, min_dist_food)
+        if direction == "Stop" or self.state.data.scoreChange == -500:
+            reward = -1
+        elif self.state.data.scoreChange == -1:
+            reward = np.tanh((new_length_modifiers[0] - self.length_modifiers[0]) / 2 + (self.length_modifiers[1] - new_length_modifiers[1]) / 6)
+        else:
+            reward = 1
+
         self.length_modifiers = new_length_modifiers
 
         terminated = self.state.isLose() or self.state.isWin()
@@ -107,7 +117,6 @@ class PacmanEnv(gym.Env):
         super().reset()
         self.steps = 0
         self.state = deepcopy(self.initial_state)
-        # TODO:
         self.length_modifiers = compute_length_modifiers(self.state)
 
         return self._get_obs(self.state), self._get_info()

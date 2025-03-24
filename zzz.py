@@ -61,6 +61,7 @@ class PacmanLearner(game.Agent):
         self.GAMMA = GAMMA
         self.LR = LR
         self.BATCH_SIZE = BATCH_SIZE
+        print(self.EPS_START, self.EPS_END)
 
         self.env = env
 
@@ -89,11 +90,11 @@ class PacmanLearner(game.Agent):
             with torch.no_grad():
                 return torch.argmax(self.policy_net(state))
         else:
-            return torch.tensor(env.action_space.sample(), device=self.device)
+            return torch.tensor(self.env.action_space.sample(), device=self.device)
 
     def optimize_model(self):
         if len(self.memory) < params["BATCH_SIZE"]:
-            return
+            return None
 
         transitions = self.memory.sample(params["BATCH_SIZE"])
         # batch = Transition(*zip(*transitions))
@@ -132,12 +133,12 @@ class PacmanLearner(game.Agent):
     def train(self, num_episodes: int = 50):
         with tqdm(range(num_episodes), desc="Episodes") as pbar:
             for i in pbar:
-                state, info = env.reset()
+                state, info = self.env.reset()
                 state = torch.tensor(state, device=self.device)
                 episode_loss = 0
                 for step in count():
                     action = self.select_action(state)
-                    observation, reward, terminated, truncated, info = env.step(action.item())
+                    observation, reward, terminated, truncated, info = self.env.step(action.item())
                     reward = torch.tensor(reward, device=self.device)
 
                     if terminated:
@@ -155,25 +156,25 @@ class PacmanLearner(game.Agent):
                     loss = self.optimize_model()
                     episode_loss += loss if loss is not None else 0
 
-                    # Soft update of the target network's weights
-                    # θ′ ← τ θ + (1 −τ )θ′
-                    target_net_state_dict = self.target_net.state_dict()
-                    policy_net_state_dict = self.policy_net.state_dict()
-                    for key in policy_net_state_dict:
-                        target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
-                    self.target_net.load_state_dict(target_net_state_dict)
-
                     if terminated or truncated:
                         self.episode_reward.append(info["score"])
                         self.episode_loss.append(episode_loss / (step + 1))
                         self.plot_durations()
-                        self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
+                        #self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
                         break
 
-                target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
+                # Soft update of the target network's weights
+                # θ′ ← τ θ + (1 −τ )θ′
+                target_net_state_dict = self.target_net.state_dict()
+                policy_net_state_dict = self.policy_net.state_dict()
+                for key in policy_net_state_dict:
+                    target_net_state_dict[key]= policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
+
+                self.target_net.load_state_dict(target_net_state_dict)
                 pbar.set_postfix_str(f"loss: {loss}")
 
-        self.target_net.load_state_dict(self.best_state["state_dict"])
+        self.target_net = self.policy_net
+        #self.target_net.load_state_dict(self.best_state["state_dict"])
 
     def plot_durations(self, show_result=False):
         with torch.no_grad():
@@ -222,13 +223,13 @@ if __name__ == "__main__":
         NUM_OBS=7 * 8,
         NUM_ACT=5,
         NUM_GHOSTS=1,
-        BATCH_SIZE=256,  # BATCH_SIZE is the number of transitions sampled from the replay buffer
+        BATCH_SIZE=512,  # BATCH_SIZE is the number of transitions sampled from the replay buffer
         GAMMA=0.95,  # GAMMA is the discount factor as mentioned in the previous section
-        EPS_START=0.99,  # EPS_START is the starting value of epsilon
-        EPS_END=0.05,  # EPS_END is the final value of epsilon
-        EPS_DECAY=1000,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+        EPS_START=0.6,  # EPS_START is the starting value of epsilon
+        EPS_END=0.2,  # EPS_END is the final value of epsilon
+        EPS_DECAY=100,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
         TAU=0.005,  # TAU is the update rate of the target network
-        LR=1e-4,  # LR is the learning rate of the ``AdamW`` optimizer
+        LR=1e-3,  # LR is the learning rate of the ``AdamW`` optimizer
         N_HIDDEN=128,  # Number of neurons in the hidden layers.
         N_EPISODES=10_000,  # Number of episodes performed during training.
     )
@@ -245,6 +246,7 @@ if __name__ == "__main__":
         nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
         nn.ReLU(),
         nn.Linear(params["N_HIDDEN"], params["NUM_ACT"]),
+        nn.Tanh()
     )
 
     gamestate = GameState()
