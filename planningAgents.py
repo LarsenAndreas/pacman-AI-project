@@ -22,19 +22,20 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from typing import Union
-from tqdm import tqdm
 
 from pacmanGymnasiumWithVector import PacmanEnv, _get_direction, _get_obs
 import gymnasium as gym
 
-BATCH_SIZE = 128
-GAMMA = 0.99
+BATCH_SIZE = 512
+GAMMA = 0.90
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.01
-LR = 1e-3
-N_HIDDEN = 128
+LR = 1e-2
+N_HIDDEN = 128 
+MEMORY_CAPACITY = 100_000
+T_TRAIN = 60 * 20
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -42,8 +43,8 @@ Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"
 
 class ReplayMemory(object):
 
-    def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+    def __init__(self):
+        self.memory = deque([], maxlen=MEMORY_CAPACITY)
 
     def push(self, *args):
         """Save a transition"""
@@ -60,16 +61,19 @@ class DQN(nn.Module):
 
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, N_HIDDEN)
-        self.layer2 = nn.Linear(N_HIDDEN, N_HIDDEN)
-        self.layer3 = nn.Linear(N_HIDDEN, n_actions)
+        self.layers = nn.Sequential(nn.Linear(n_observations, N_HIDDEN), 
+                                    nn.ReLU(), 
+                                    nn.Linear(N_HIDDEN, N_HIDDEN), 
+                                    nn.ReLU(),
+                                    nn.Linear(N_HIDDEN, N_HIDDEN),
+                                    nn.ReLU(),
+                                    nn.Linear(N_HIDDEN, n_actions)
+                                )
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        return self.layers(x)
 
 def optimize_model(policy_net: DQN, target_net: DQN, memory: ReplayMemory, optimizer: optim.AdamW):
     if len(memory) < BATCH_SIZE:
@@ -105,8 +109,12 @@ def optimize_model(policy_net: DQN, target_net: DQN, memory: ReplayMemory, optim
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
+    for i in range(len(non_final_mask)):
+        if non_final_mask[i] == False:
+            expected_state_action_values[i] = reward_batch[i]
+
     # Compute Huber loss
-    criterion = nn.SmoothL1Loss()
+    criterion = nn.MSELoss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
@@ -127,7 +135,9 @@ def select_action(policy_net: DQN, obs: torch.Tensor, env: PacmanEnv, steps_done
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(obs).max(1).indices.view(1, 1), steps_done
+            #print(obs, policy_net(obs), policy_net(obs).max(1), policy_net(obs).max(1).indices.view(1, 1))
+            #print(torch.argmax(policy_net(obs), dim=-1))
+            return torch.argmax(policy_net(obs), dim=-1).view(1, 1), steps_done
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long), steps_done
 
@@ -171,36 +181,30 @@ class PlanningAgent(game.Agent):
         # Get number of actions from gym action space
         n_actions = env.action_space.n
         # Get the number of state observations
-        n_observations = self._h * self._w * 4
-        
+        n_observations = len(env.reset()[0])
+
         policy_net = DQN(n_observations, n_actions).to(device)
         target_net = DQN(n_observations, n_actions).to(device)
         target_net.load_state_dict(policy_net.state_dict())
         
         optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-        memory = ReplayMemory(10000)
+        memory = ReplayMemory()
         
         steps_done = 0
         
         episode_scores = []
         start = time.time()
-        pbar = tqdm(total=1.0, desc="Training", leave=True, position=0, colour="green")
-        pbar_ep = tqdm(desc="Episode", leave=True, position=1)
-        while (t_used := time.time() - start) < 60: # Total time budget of 10 minutes
-            print(t_used)
-            pbar.update(60 / t_used)
+        #pbar = tqdm(total=1.0, desc="Training")
+        while (t_used := time.time() - start) < T_TRAIN: # Total time budget of 10 minutes
+            #pbar.update(300 / t_used)
             # Initialize the environment and get its state
             obs, info = env.reset()
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-
             for t in count():
-                pbar_ep.update()
                 action, steps_done = select_action(policy_net, obs_tensor, env, steps_done)
                 observation, reward, terminated, truncated, _ = env.step(action.item())
                 reward = torch.tensor([reward], device=device)
                 done = terminated or truncated
-
-                pbar_ep.set_postfix({"reward": reward.item(), "action": action.item(), "terminated": terminated, "truncated": truncated})
 
                 if terminated:
                     next_obs_tensor = None
@@ -225,13 +229,14 @@ class PlanningAgent(game.Agent):
                 target_net.load_state_dict(target_net_state_dict)
                 
                 if done:
+                    print(f"{terminated=} {truncated=}")
                     episode_scores.append(env.state.getScore())
+                    print(f"Score: {episode_scores[-1]}, time used: {t_used / (T_TRAIN) * 100:.1f}%")
                     plot_scores(episode_scores)
-                    pbar_ep.reset()
                     break
 
         env.close()
-        pbar.close()
+        #pbar.close()
 
         self.policy_net = policy_net
         print("Training complete!")
@@ -254,18 +259,3 @@ class PlanningAgent(game.Agent):
             return action
 
 
-#    def constructInputMatrix(self, state: GameState) -> ArrayLike:
-#        """Constructs an input matrix based on the given state."""
-#        #matrix = np.zeros((N, M), dtype="float32")
-#        matrix = np.array(state.getWalls().data, dtype="float32")
-#
-#        food = np.array(state.getFood().data, dtype="float32")
-#        matrix[:food.shape[0], :food.shape[1]] += 2 * food
-#        
-#        (i, j) = state.getPacmanPosition()
-#        matrix[i, j] = 3
-#
-#        for (i, j) in state.getGhostPositions():
-#            matrix[int(i), int(j)] = 4
-#
-#        return matrix

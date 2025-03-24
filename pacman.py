@@ -39,6 +39,7 @@ code to run a game.  This file is divided into three sections:
 To play your first game, type 'python pacman.py' from the command line.
 The keys are 'a', 's', 'd', and 'w' to move (or arrow keys).  Have fun!
 """
+from pprint import pprint
 from game import GameStateData
 from game import Game
 from game import Directions
@@ -655,12 +656,14 @@ def loadAgent(pacman, nographics):
             try:
                 module = __import__(modulename[:-3])
             except ImportError:
+                print(modulename)
                 continue
             if pacman in dir(module):
                 if nographics and modulename == 'keyboardAgents.py':
                     raise Exception(
                         'Using the keyboard requires graphics (not text display)')
                 return getattr(module, pacman)
+            
     raise Exception('The agent ' + pacman +
                     ' is not specified in any *Agents.py.')
 
@@ -711,6 +714,7 @@ def runGames(layout, horizon, pacman, ghosts, display, numGames, record, numTrai
         if not beQuiet:
             games.append(game)
 
+        pprint(game.moveHistory)
         if record:
             import time
             import pickle
