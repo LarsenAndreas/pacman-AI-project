@@ -39,11 +39,11 @@ def compute_length_modifier (state: GameState) -> Tuple[int, int]:
         # Generate next fronteir
         fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
 
-    return min_distance_to_food - min_distance_to_ghost
+    return (min_distance_to_ghost - min_distance_to_food)
 
 class PacmanEnv(gym.Env):
 
-    def __init__(self, initial_state: GameState = None, layout: Layout = None, max_steps: int = 1000):
+    def __init__(self, initial_state: GameState = None, layout: Layout = None, max_steps: int = 100):
         self.initial_state = initial_state if initial_state is not None else GameState()
         self.max_steps = max_steps
 
@@ -91,9 +91,9 @@ class PacmanEnv(gym.Env):
         self.state = self.state.generatePacmanSuccessor(direction) 
         observation = self._get_obs(self.state)
 
-        length_modifier_change = compute_length_modifier(self.state) - self.length_modifier
-        reward = self.state.data.scoreChange + length_modifier_change # This is the change in score from the action
-        self.length_modifier += length_modifier_change
+        # length_modifier_change = compute_length_modifier(self.state) - self.length_modifier
+        reward = self.state.data.scoreChange # + length_modifier_change # This is the change in score from the action
+        # self.length_modifier += length_modifier_change
 
         terminated = self.state.isLose() or self.state.isWin()
         truncated = self.steps >= self.max_steps
@@ -107,7 +107,7 @@ class PacmanEnv(gym.Env):
         super().reset()
         self.steps = 0
         self.state = deepcopy(self.initial_state)
-        self.length_modifier = compute_length_modifier(self.state)
+        # self.length_modifier = compute_length_modifier(self.state)
 
         return self._get_obs(self.state), self._get_info()
 
