@@ -237,8 +237,8 @@ class PacmanLearner(game.Agent):
 if __name__ == "__main__":
 
     params = dict(
-        LAYOUT=layout.getLayout("knownSmall"),
-        NUM_OBS=7 * 8,
+        LAYOUT=layout.getLayout("knownMedium"),
+        NUM_OBS = 140,
         NUM_ACT=5,
         NUM_GHOSTS=1,
         BATCH_SIZE=512,  # BATCH_SIZE is the number of transitions sampled from the replay buffer

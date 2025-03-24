@@ -653,11 +653,7 @@ def loadAgent(pacman, nographics):
         moduleNames = [f for f in os.listdir(
             moduleDir) if f.endswith('gents.py')]
         for modulename in moduleNames:
-            try:
-                module = __import__(modulename[:-3])
-            except ImportError:
-                print(modulename)
-                continue
+            module = __import__(modulename[:-3])
             if pacman in dir(module):
                 if nographics and modulename == 'keyboardAgents.py':
                     raise Exception(

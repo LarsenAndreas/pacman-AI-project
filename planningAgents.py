@@ -1,31 +1,6 @@
 from layout import Layout
-from pacman import Directions
-from game import Agent
-import random
-import game
-import util
-from pacman import GameState
-from pacmanGymnasiumWithVector import *
+
 import time 
-
-import math
-import random
-from collections import deque, namedtuple
-from itertools import count
-
-from pacman import GameState
-import matplotlib
-import matplotlib.pyplot as plt
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import numpy as np
-from typing import Union
-
-from pacmanGymnasiumWithVector import PacmanEnv, _get_direction, _get_obs
-import gymnasium as gym
-
 import math
 import random
 from collections import deque, namedtuple
@@ -46,14 +21,22 @@ import numpy as np
 import game
 import graphicsDisplay
 from pacman import ClassicGameRules, Directions, GameState, layout, loadAgent
-from pacmanGymnasium import PacmanEnv
+from pacmanGymnasium import PacmanEnv, _get_obs, _get_direction
 
 Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"))
 
-# Set hyperparameters
+# Training hyper parameters
 REPLAY_MEMORY_CAPACITY = 10_000
 BATCH_SIZE = 512
-LR = 1e-4
+LR = 5e-3
+TAU = 0.005
+GAMMA = 0.99
+EPS_START = 0.95
+EPS_END = 0.05
+EPS_DECAY = 100
+N_HIDDEN = 64
+N_ACT = 5
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class ReplayMemory(object):
 
@@ -74,50 +57,36 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-
 class PacmanLearner(game.Agent):
     def __init__(
         self,
-        model: nn.modules.Module,
-        env: gym.Env,
-        EPS_START: float = 0.99,
-        EPS_END: float = 0.05,
-        EPS_DECAY: int = 1000,
-        TAU: float = 0.005,
-        GAMMA: float = 0.99,
-        LR: float = 1e-4,
-        BATCH_SIZE: int = 128,
+        env: PacmanEnv,
         **kwargs,
     ):
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print(f"Running on {self.device}!")
-
-        self.EPS_START = EPS_START
-        self.EPS_END = EPS_END
-        self.EPS_DECAY = EPS_DECAY
-        self.TAU = TAU
-        self.GAMMA = GAMMA
-        self.LR = LR
-        self.BATCH_SIZE = BATCH_SIZE
-
+        
         self.env = env
+        self.policy_net = nn.Sequential(
+            nn.Linear(self.env._h * self.env._w, N_HIDDEN),
+            nn.ReLU(),
+            nn.Linear(N_HIDDEN, N_HIDDEN),
+            nn.ReLU(),
+            nn.Linear(N_HIDDEN, N_HIDDEN),
+            nn.ReLU(),
+            nn.Linear(N_HIDDEN, N_ACT)
+        ).to(DEVICE)
 
-        self.policy_net = model.to(self.device)
-        #self.target_net = deepcopy(model.to(self.device))
+        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=LR, amsgrad=True)
 
-        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
-        self.memory = ReplayMemory()#**kwargs)
+        self.memory = ReplayMemory()
         self.steps_done = 0
         self.loss_func = nn.SmoothL1Loss()
 
-        self.best_state = {"state_dict": None, "score": -1e16}
-
-        # Start by initially target net to give close to zero on dataset, making it more 
-        # succeptible to changes down the road.
-        for _ in range(10_000):
+        # Start by initially network to give close to zero on inputs similar to those found in the dataset
+        # making it more succeptible to initial changes down the road.
+        for _ in range(1_000):
             # Make a batch which looks like something that it would see from the environment
-            batch = torch.rand((params["BATCH_SIZE"] * 3, params["NUM_OBS"])).to(self.device) * 4 - 2
-            loss = self.loss_func(torch.zeros([params["BATCH_SIZE"] * 3, 5]).to(self.device), self.policy_net(batch))
+            batch = torch.rand((1024, self.env._w * self.env._h)).to(DEVICE) * 4 - 2
+            loss = self.loss_func(torch.zeros([1024, N_ACT]).to(DEVICE), self.policy_net(batch))
             self.policy_net.zero_grad()
             loss.backward()
 
@@ -126,7 +95,7 @@ class PacmanLearner(game.Agent):
             self.optimizer.step()
 
         print("Finished initial tuning")
-        self.target_net = deepcopy(self.policy_net.to(self.device))
+        self.target_net = deepcopy(self.policy_net.to(DEVICE))
 
         # Plotting
         self.episode_reward = []
@@ -136,20 +105,21 @@ class PacmanLearner(game.Agent):
 
     def select_action(self, obs):
         """Picks the action using the policy network which models a ''Q-table'' hopefully atleast."""
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1.0 * self.steps_done / self.EPS_DECAY)
+        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * self.steps_done / EPS_DECAY)
         self.steps_done += 1
         if np.random.uniform(0, 1) > eps_threshold:
             with torch.no_grad():
                 return torch.argmax(self.policy_net(obs))
         else:
-            action = torch.tensor(self.env.action_space.sample(), device=self.device)
+            action = torch.tensor(self.env.action_space.sample(), device=DEVICE)
             return action
 
     def optimize_model(self):
-        if len(self.memory) < params["BATCH_SIZE"]:
+        """Optimizes the model using the methodology outlined in the DQN algorithm algorithm"""
+        if len(self.memory) < BATCH_SIZE:
             return None
 
-        transitions = self.memory.sample(params["BATCH_SIZE"])
+        transitions = self.memory.sample(BATCH_SIZE)
         state_batch = []
         action_batch = []
         reward_batch = []
@@ -170,63 +140,66 @@ class PacmanLearner(game.Agent):
 
         next_state_values = reward_batch
         with torch.no_grad():
-            next_state_values[not_terminated_mask] += torch.max(self.target_net(next_state_batch), dim=1).values * self.GAMMA
+            next_state_values[not_terminated_mask] += torch.max(self.target_net(next_state_batch), dim=1).values * GAMMA
 
         loss = self.loss_func(next_state_values, torch.gather(self.policy_net(state_batch), 1, action_batch.unsqueeze(1)).squeeze())
 
         #self.optimizer.zero_grad()
         self.policy_net.zero_grad()
         loss.backward()
+
         # In-place gradient clipping
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         return loss.item()
 
-    def train(self, num_episodes: int = 50):
-        with tqdm(range(num_episodes), desc="Episodes") as pbar:
-            for i in pbar:
-                state, info = self.env.reset()
-                state = torch.tensor(state, device=self.device)
-                episode_loss = 0
-                transitions = []
-                for step in count():
-                    action = self.select_action(state)
-                    observation, reward, terminated, truncated, info = self.env.step(action.item())
-                    reward = torch.tensor(reward, device=self.device)
+    def train(self, time_budget: float = 600):
+        """Trains the network using the DQN algorithm using the total time budget."""
+        print(f"Starting main training loop, with a time budget of {time_budget} seconds")
 
-                    if terminated:
-                        next_state = None
-                    else:
-                        next_state = torch.tensor(observation, device=self.device)
+        start_time = time.time()
+        while (time.time() - start_time < time_budget):
+            state, info = self.env.reset()
+            state = torch.tensor(state, device=DEVICE)
+            episode_loss = 0
+            for step in count():
+                action = self.select_action(state)
+                observation, reward, terminated, truncated, info = self.env.step(action.item())
+                reward = torch.tensor(reward, device=DEVICE)
 
-                    # Store the transition in memory
-                    self.memory.push(state, action, next_state, reward)
+                if terminated:
+                    next_state = None
+                else:
+                    next_state = torch.tensor(observation, device=DEVICE)
 
-                    # Move to the next state
-                    state = next_state
+                # Store the transition in memory
+                self.memory.push(state, action, next_state, reward)
 
-                    # Perform one step of the optimization (on the policy network)
-                    loss = self.optimize_model()
-                    episode_loss += loss if loss is not None else 0
+                # Move to the next state
+                state = next_state
 
-                    # Soft update of the target network's weights
-                    # θ′ ← τ θ + (1 −τ )θ′
-                    with torch.no_grad():
-                        target_net_state_dict = self.target_net.state_dict()
-                        policy_net_state_dict = self.policy_net.state_dict()
-                        for key in policy_net_state_dict:
-                            target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
+                # Perform one step of the optimization (on the policy network)
+                loss = self.optimize_model()
+                episode_loss += loss if loss is not None else 0
 
-                        self.target_net.load_state_dict(target_net_state_dict)
+                # Soft update of the target network's weights
+                # θ′ ← τ θ + (1 −τ )θ′
+                with torch.no_grad():
+                    target_net_state_dict = self.target_net.state_dict()
+                    policy_net_state_dict = self.policy_net.state_dict()
+                    for key in policy_net_state_dict:
+                        target_net_state_dict[key] = policy_net_state_dict[key] * TAU + target_net_state_dict[key] * (1 - TAU)
 
-                    if terminated or truncated:
-                        self.episode_reward.append(info["score"])
-                        self.episode_loss.append(episode_loss / (step + 1))
-                        self.plot_durations()
-                        #self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
-                        break
+                    self.target_net.load_state_dict(target_net_state_dict)
+
+                if terminated or truncated:
+                    self.episode_reward.append(info["score"])
+                    self.episode_loss.append(episode_loss / (step + 1))
+                    self.plot_durations()
+                    break
                 
-                pbar.set_postfix_str(f"loss: {loss}")
+        input("Ready?")
+        return self.policy_net
 
     def plot_durations(self, show_result=False):
         with torch.no_grad():
@@ -253,92 +226,34 @@ class PacmanLearner(game.Agent):
                 self.axs[1].plot(means.numpy())
             plt.pause(0.001)  # pause a bit so that plots are updated
 
-    def getAction(self, gamestate: GameState) -> Directions:
-        observation = self.env._get_obs(gamestate)
-        with torch.no_grad():
-            q = self.policy_net(torch.tensor(observation).to(self.device))
-            action = self.env._get_direction(int(torch.argmax(q).detach().cpu()))
-
-            if not action in (legal_actions := gamestate.getLegalActions()):  # SHIELD
-                print(f"Got action {action} which is not in legal actions {legal_actions}")
-                action = random.choice(gamestate.getLegalPacmanActions()) # "Stop"
-
-            print(f"Action: {action}")
-            return action
-
-
-if __name__ == "__main__":
-
-    params = dict(
-        LAYOUT=layout.getLayout("knownSmall"),
-        NUM_OBS=7 * 8,
-        NUM_ACT=5,
-        NUM_GHOSTS=1,
-        BATCH_SIZE=512,  # BATCH_SIZE is the number of transitions sampled from the replay buffer
-        GAMMA=0.95,  # GAMMA is the discount factor as mentioned in the previous section
-        EPS_START=0.8,  # EPS_START is the starting value of epsilon
-        EPS_END=0.05,  # EPS_END is the final value of epsilon
-        EPS_DECAY=500,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
-        TAU=0.005,  # TAU is the update rate of the target network
-        LR=5e-3,  # LR is the learning rate of the ``AdamW`` optimizer
-        N_HIDDEN = 128,  # Number of neurons in the hidden layers.
-        N_EPISODES=5_000,  # Number of episodes performed during training.
-    )
-
-    print(f"Running with parameters:\n{pformat(params)}")
-
-    model = nn.Sequential(
-        nn.Linear(params["NUM_OBS"], params["N_HIDDEN"]),
-        nn.ReLU(),
-        nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
-        nn.ReLU(),
-        nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
-        nn.ReLU(),
-        nn.Linear(params["N_HIDDEN"], params["NUM_ACT"])
-    )
-
-
-    gamestate = GameState()
-    gamestate.initialize(params["LAYOUT"], params["NUM_GHOSTS"])
-    env = PacmanEnv(gamestate, params["LAYOUT"])
-    pacAgent = PacmanLearner(model, env, **params)
-    pacAgent.train(params["N_EPISODES"])
-
-    rules = ClassicGameRules(30)
-
-    args = dict(
-        layout=params["LAYOUT"],
-        horizon=-1,
-        # pacmanAgent = PlanningAgent(layout.getLayout("knownMedium")),
-        pacmanAgent=pacAgent,
-        ghostAgents=[loadAgent("RandomGhost", True)(i + 1) for i in range(params["NUM_GHOSTS"])],
-        display=graphicsDisplay.PacmanGraphics(1.0, frameTime=0.1),
-        quiet=False,
-        catchExceptions=False,
-    )
-    game = rules.newGame(**args)
-    game.run()
-
 class PlanningAgent(game.Agent):
-    "An agent that turns left at every opportunity"
 
     def __init__(self, layout : Layout, **kwargs):
-        print(layout)
         self.layout = layout
-
-        self._h, self._w = layout.height, layout.width
         self.initial_game_state = GameState()
         self.initial_game_state.initialize(layout, layout.numGhosts)
 
-        self.policy_net = None
         self.offline_planning()
 
     def offline_planning(self):
         """Train Deep Q learning agent on the layout."""
-        
-        print("Training complete!")
+        env = PacmanEnv(self.initial_game_state, self.layout, max_steps = self.layout.width * self.layout.height * 2) # NOTE: Max Steps gets set dynamically.
+        learner = PacmanLearner(env)
+        self.policy_net = learner.train(time_budget = 60 * 10)
 
-    def getAction(self, state : GameState) -> Directions:
-        return self.policy_net.select_action(state)
+    def getAction(self, state: GameState) -> Directions:
+        """Simply pick an action using the neural network."""
+        observation = _get_obs(state)
+        with torch.no_grad():
+            q = self.policy_net(torch.tensor(observation).to(DEVICE))
+            action = _get_direction(int(torch.argmax(q).detach().cpu()))
+
+            if not action in (legal_actions := state.getLegalActions()): # Basically works as a SHIELD
+                print(f"Got action {action} which is not in legal actions {legal_actions}")
+                action = random.choice(state.getLegalPacmanActions()) # TODO: Move away from ghost if posible.
+
+            print(f"Action: {action}")
+            return action 
+
 
 
