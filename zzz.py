@@ -39,7 +39,17 @@ class ReplayMemory(object):
 
 class PacmanLearner(game.Agent):
     def __init__(
-        self, model: nn.modules.Module, env: gym.Env, EPS_START: float = 0.99, EPS_END: float = 0.05, EPS_DECAY: int = 1000, TAU: float = 0.005, GAMMA: float = 0.99, LR: float = 1e-4, BATCH_SIZE: int = 128, **kwargs
+        self,
+        model: nn.modules.Module,
+        env: gym.Env,
+        EPS_START: float = 0.99,
+        EPS_END: float = 0.05,
+        EPS_DECAY: int = 1000,
+        TAU: float = 0.005,
+        GAMMA: float = 0.99,
+        LR: float = 1e-4,
+        BATCH_SIZE: int = 128,
+        **kwargs,
     ):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"Running on {self.device}!")
@@ -63,8 +73,13 @@ class PacmanLearner(game.Agent):
         self.steps_done = 0
         self.loss_func = nn.SmoothL1Loss()
 
-        self.episode_reward = []
         self.best_state = {"state_dict": None, "score": -1e16}
+
+        # Plotting
+        self.episode_reward = []
+        self.episode_loss = []
+        self.fig, self.axs = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+        self.fig.suptitle("Training...")
 
     def select_action(self, state):
         sample = random.random()
@@ -104,9 +119,9 @@ class PacmanLearner(game.Agent):
         next_state_values = reward_batch
         with torch.no_grad():
             next_state_values[terminate_mask] += torch.max(self.target_net(next_state_batch), dim=1).values * self.GAMMA
-        
+
         loss = self.loss_func(next_state_values, torch.gather(self.policy_net(state_batch), 1, action_batch.unsqueeze(0)).squeeze())
-        
+
         self.optimizer.zero_grad()
         loss.backward()
         # In-place gradient clipping
@@ -119,6 +134,7 @@ class PacmanLearner(game.Agent):
             for i in pbar:
                 state, info = env.reset()
                 state = torch.tensor(state, device=self.device)
+                episode_loss = 0
                 for step in count():
                     action = self.select_action(state)
                     observation, reward, terminated, truncated, info = env.step(action.item())
@@ -137,6 +153,7 @@ class PacmanLearner(game.Agent):
 
                     # Perform one step of the optimization (on the policy network)
                     loss = self.optimize_model()
+                    episode_loss += loss if loss is not None else 0
 
                     # Soft update of the target network's weights
                     # θ′ ← τ θ + (1 −τ )θ′
@@ -148,6 +165,7 @@ class PacmanLearner(game.Agent):
 
                     if terminated or truncated:
                         self.episode_reward.append(info["score"])
+                        self.episode_loss.append(episode_loss / (step + 1))
                         self.plot_durations()
                         self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
                         break
@@ -157,43 +175,47 @@ class PacmanLearner(game.Agent):
 
         self.target_net.load_state_dict(self.best_state["state_dict"])
 
-                    
     def plot_durations(self, show_result=False):
         with torch.no_grad():
-            plt.figure(1)
-            durations_t = torch.tensor(self.episode_reward, dtype=torch.float)
-            if show_result:
-                plt.title('Result')
-            else:
-                plt.clf()
-                plt.title('Training...')
-            plt.xlabel('Episode')
-            plt.ylabel('Score')
-            plt.plot(durations_t.numpy())
-            # Take 100 episode averages and plot them too
-            if len(durations_t) >= 100:
-                means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-                means = torch.cat((torch.zeros(99), means))
-                plt.plot(means.numpy())
+            rewards = torch.tensor(self.episode_reward, dtype=torch.float)
+            losses = torch.tensor(self.episode_loss, dtype=torch.float)
 
+            self.axs[0].cla()
+            self.axs[1].cla()
+
+            self.axs[1].set_xlabel("Episode")
+            self.axs[0].set_ylabel("Score")
+            self.axs[1].set_ylabel("Loss")
+
+            self.axs[0].plot(rewards.numpy())
+            self.axs[1].plot(losses.numpy())
+            # Take 100 episode averages and plot them too
+            if len(rewards) >= 100:
+                means = rewards.unfold(0, 100, 1).mean(1).view(-1)
+                means = torch.cat((torch.zeros(99), means))
+                self.axs[0].plot(means.numpy())
+
+                means = losses.unfold(0, 100, 1).mean(1).view(-1)
+                means = torch.cat((torch.zeros(99), means))
+                self.axs[1].plot(means.numpy())
             plt.pause(0.001)  # pause a bit so that plots are updated
 
-    def getAction(self, gamestate : GameState) -> Directions:
+
+    def getAction(self, gamestate: GameState) -> Directions:
         observation = self.env._get_obs(gamestate)
         with torch.no_grad():
             q = self.policy_net(torch.tensor(observation).to(self.device))
             action = self.env._get_direction(int(torch.argmax(q).detach().cpu()))
 
-            if action not in (legal_actions := gamestate.getLegalActions()): # SHIELD
+            if action not in (legal_actions := gamestate.getLegalActions()):  # SHIELD
                 action = "Stop"
                 print(f"Got action {action} which is not in legal actions {legal_actions}")
-                
+
             print(f"Action: {action}")
             return action
 
-if __name__ == "__main__":
 
-    
+if __name__ == "__main__":
 
     params = dict(
         LAYOUT=layout.getLayout("knownSmall"),
@@ -207,8 +229,8 @@ if __name__ == "__main__":
         EPS_DECAY=1000,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
         TAU=0.005,  # TAU is the update rate of the target network
         LR=1e-4,  # LR is the learning rate of the ``AdamW`` optimizer
-        N_HIDDEN=128, # Number of neurons in the hidden layers.
-        N_EPISODES=10_000, # Number of episodes performed during training.
+        N_HIDDEN=128,  # Number of neurons in the hidden layers.
+        N_EPISODES=10_000,  # Number of episodes performed during training.
     )
 
     print(f"Running with parameters:\n{pformat(params)}")
