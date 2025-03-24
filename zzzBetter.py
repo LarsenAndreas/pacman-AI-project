@@ -62,9 +62,6 @@ class PacmanLearner(game.Agent):
         self.steps_done = 0
         self.loss_func = nn.SmoothL1Loss()
 
-        self.episode_reward = []
-        self.best_state = {"state_dict": None, "score": -1e16}
-
     def select_action(self, state):
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1.0 * self.steps_done / self.EPS_DECAY)
@@ -144,34 +141,7 @@ class PacmanLearner(game.Agent):
                 self.target_net.load_state_dict(target_net_state_dict)
 
                 if terminated or truncated:
-                    self.episode_reward.append(info["score"])
-                    self.plot_durations()
-                    self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
                     break
-
-            target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
-
-        self.target_net.load_state_dict(self.best_state["state_dict"])
-
-                    
-    def plot_durations(self, show_result=False):
-        plt.figure(1)
-        durations_t = torch.tensor(self.episode_reward, dtype=torch.float)
-        if show_result:
-            plt.title('Result')
-        else:
-            plt.clf()
-            plt.title('Training...')
-        plt.xlabel('Episode')
-        plt.ylabel('Score')
-        plt.plot(durations_t.numpy())
-        # Take 100 episode averages and plot them too
-        if len(durations_t) >= 100:
-            means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-            means = torch.cat((torch.zeros(99), means))
-            plt.plot(means.numpy())
-
-        plt.pause(0.001)  # pause a bit so that plots are updated
 
     def getAction(self, gamestate : GameState) -> Directions:
         observation = self.env._get_obs(gamestate)
@@ -218,7 +188,7 @@ if __name__ == "__main__":
     gamestate.initialize(params["LAYOUT"], params["NUM_GHOSTS"])
     env = PacmanEnv(gamestate, params["LAYOUT"])
     pacAgent = PacmanLearner(model, env, **params)
-    pacAgent.train(500)
+    pacAgent.train(10)
 
     rules = ClassicGameRules(30)
 
