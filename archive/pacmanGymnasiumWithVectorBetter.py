@@ -42,7 +42,21 @@ def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
             # Generate next fronteir
             fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
 
+    #print("Game State and Lengths")
+    #print(np.reshape(_get_obs(state), (8, 7)))
+    #print(min_distance_to_ghost, min_distance_to_food)
+
     return (min_distance_to_ghost, min_distance_to_food)
+
+@staticmethod
+def _get_obs(state: GameState) -> ArrayLike:
+    gameboard = -np.array(state.getWalls().data, dtype="float32") # Set the walls
+    gameboard[*state.getPacmanPosition()] = 1 # Set pacmans position
+    for (i, j) in state.getGhostPositions():
+        gameboard[int(i), int(j)] = -2
+    gameboard[state.getFood().data] = 2 # Set the ghosts positions
+
+    return gameboard.flatten()
 
 def sigmoid (x) -> float:
     return 1 / (1 + np.exp(-x))
@@ -64,16 +78,14 @@ class PacmanEnv(gym.Env):
     
     @staticmethod
     def _get_obs(state: GameState) -> ArrayLike:
-        gameboard = -np.array(state.getWalls().data, dtype="float32") # Set the walls
-        gameboard[*state.getPacmanPosition()] = 1 # Set pacmans position
-        for (i, j) in state.getGhostPositions():
-            gameboard[int(i), int(j)] = -2
-        gameboard[state.getFood().data] = 2 # Set the ghosts positions
+        return _get_obs(state)
+        #gameboard = -np.array(state.getWalls().data, dtype="float32") # Set the walls
+        #gameboard[*state.getPacmanPosition()] = 1 # Set pacmans position
+        #for (i, j) in state.getGhostPositions():
+        #    gameboard[int(i), int(j)] = -2
+        #gameboard[state.getFood().data] = 2 # Set the ghosts positions
 
-        # if len(capsules := state.getCapsules()) > 0:
-        #     gameboard[tuple(zip(*capsules))] = 5
-
-        return gameboard.flatten()
+        #return gameboard.flatten()
     
     @staticmethod
     def _get_direction(action: int) -> Directions:
@@ -104,7 +116,7 @@ class PacmanEnv(gym.Env):
 
         # TODO
         new_length_modifiers = compute_length_modifiers(self.state) # (min_dist_ghost, min_dist_food)
-        reward = self.state.data.scoreChange + 10 * (new_length_modifiers[0] - self.length_modifiers[0]) + 10 * (self.length_modifiers[1] - new_length_modifiers[1])
+        reward = self.state.data.scoreChange + 5 * (new_length_modifiers[0] - self.length_modifiers[0]) + 2 * (self.length_modifiers[1] - new_length_modifiers[1])
 
         self.length_modifiers = new_length_modifiers
 
