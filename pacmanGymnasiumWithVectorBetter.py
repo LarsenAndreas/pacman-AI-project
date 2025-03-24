@@ -9,6 +9,7 @@ from numpy.typing import ArrayLike
 from itertools import count
 from layout import Layout
 from functools import reduce
+import random 
 
 from pacman import GameState, readCommand, Directions
 
@@ -19,8 +20,7 @@ def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
     """length modifier is: distance to closest food - distance to closest ghost, computed using BFS."""
     min_distance_to_food, min_distance_to_ghost = None, None
     if np.sum(np.array(state.getFood().data, dtype="int64")) == 0:
-        print("WTF")
-        min_distance_to_food = 0 # We have won, so we dont care anymore!
+        min_distance_to_food = -10 # We have won, so we dont care anymore!
 
     fronteir = {state.getPacmanPosition()}
     visited = set()
@@ -32,12 +32,15 @@ def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
         if (min_distance_to_ghost == None) and len(set(map(lambda pos: (int(pos[0]), int(pos[1])), state.getGhostPositions())) & fronteir) != 0:
             min_distance_to_ghost = d
 
+        # If both are set we may break out of the search
         if (min_distance_to_food != None) and (min_distance_to_ghost != None):
             break
 
-        visited |= fronteir
-        # Generate next fronteir
-        fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
+        # Else we need to generate the new fronteir.
+        else:
+            visited |= fronteir
+            # Generate next fronteir
+            fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
 
     return (min_distance_to_ghost, min_distance_to_food)
 
@@ -61,10 +64,11 @@ class PacmanEnv(gym.Env):
     
     @staticmethod
     def _get_obs(state: GameState) -> ArrayLike:
-        gameboard = np.array(state.getWalls().data, dtype="float32") # Set the walls
-        gameboard[*state.getPacmanPosition()] = 2 # Set pacmans position
-        gameboard[list(map(lambda x,y: (int(x), int(y)), *zip(*state.getGhostPositions())))] = 3 # Set the ghosts positions
-        gameboard[state.getFood().data] = 4 # Set the ghosts positions
+        gameboard = -np.array(state.getWalls().data, dtype="float32") # Set the walls
+        gameboard[*state.getPacmanPosition()] = 1 # Set pacmans position
+        for (i, j) in state.getGhostPositions():
+            gameboard[int(i), int(j)] = -2
+        gameboard[state.getFood().data] = 2 # Set the ghosts positions
 
         # if len(capsules := state.getCapsules()) > 0:
         #     gameboard[tuple(zip(*capsules))] = 5
@@ -92,16 +96,15 @@ class PacmanEnv(gym.Env):
         self.steps += 1
 
         self.state = self.state.generatePacmanSuccessor(direction) 
+        if not (self.state.isWin() or self.state.isLose()):
+            for ghost_id in range(1, self.state.getNumAgents()):
+                self.state = self.state.generateSuccessor(ghost_id, random.choice(self.state.getLegalActions(ghost_id)))
+
         observation = self._get_obs(self.state)
 
         # TODO
         new_length_modifiers = compute_length_modifiers(self.state) # (min_dist_ghost, min_dist_food)
-        if direction == "Stop" or self.state.data.scoreChange == -500:
-            reward = -1
-        elif self.state.data.scoreChange == -1:
-            reward = np.tanh((new_length_modifiers[0] - self.length_modifiers[0]) / 2 + (self.length_modifiers[1] - new_length_modifiers[1]) / 6)
-        else:
-            reward = 1
+        reward = self.state.data.scoreChange + 10 * (new_length_modifiers[0] - self.length_modifiers[0]) + 10 * (self.length_modifiers[1] - new_length_modifiers[1])
 
         self.length_modifiers = new_length_modifiers
 

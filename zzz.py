@@ -29,6 +29,10 @@ class ReplayMemory(object):
     def push(self, *args):
         """Save a transition"""
         self.memory.append(Transition(*args))
+    
+    def append_transition(self, t: Transition):
+        """Appends the transition to the end of the memory"""
+        self.memory.append(t)
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -69,7 +73,7 @@ class PacmanLearner(game.Agent):
         self.target_net = model.to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR)
+        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
         self.memory = ReplayMemory(**kwargs)
         self.steps_done = 0
         self.loss_func = nn.SmoothL1Loss()
@@ -126,7 +130,7 @@ class PacmanLearner(game.Agent):
         self.optimizer.zero_grad()
         loss.backward()
         # In-place gradient clipping
-        # torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         return loss.item()
 
@@ -136,6 +140,7 @@ class PacmanLearner(game.Agent):
                 state, info = self.env.reset()
                 state = torch.tensor(state, device=self.device)
                 episode_loss = 0
+                transitions = []
                 for step in count():
                     action = self.select_action(state)
                     observation, reward, terminated, truncated, info = self.env.step(action.item())
@@ -148,6 +153,7 @@ class PacmanLearner(game.Agent):
 
                     # Store the transition in memory
                     self.memory.push(state, action, next_state, reward)
+                    #transitions.append(Transition(state, action, next_state, reward))
 
                     # Move to the next state
                     state = next_state
@@ -162,6 +168,12 @@ class PacmanLearner(game.Agent):
                         self.plot_durations()
                         #self.best_state = {"state_dict": policy_net_state_dict, "score": info["score"]} if info["score"] > self.best_state["score"] else self.best_state
                         break
+                
+                # Include the discounted reward into the transition
+                #discounted_reward = 0
+                #for t in reversed(transitions):
+                #    discounted_reward = (t.reward + self.GAMMA * discounted_reward)
+                #    self.memory.push(t.state, t.action, t.next_state, discounted_reward)
 
                 # Soft update of the target network's weights
                 # θ′ ← τ θ + (1 −τ )θ′
@@ -225,12 +237,12 @@ if __name__ == "__main__":
         NUM_GHOSTS=1,
         BATCH_SIZE=512,  # BATCH_SIZE is the number of transitions sampled from the replay buffer
         GAMMA=0.95,  # GAMMA is the discount factor as mentioned in the previous section
-        EPS_START=0.6,  # EPS_START is the starting value of epsilon
-        EPS_END=0.2,  # EPS_END is the final value of epsilon
-        EPS_DECAY=100,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+        EPS_START=0.8,  # EPS_START is the starting value of epsilon
+        EPS_END=0.05,  # EPS_END is the final value of epsilon
+        EPS_DECAY=300,  # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
         TAU=0.005,  # TAU is the update rate of the target network
-        LR=1e-3,  # LR is the learning rate of the ``AdamW`` optimizer
-        N_HIDDEN=128,  # Number of neurons in the hidden layers.
+        LR=1e-4,  # LR is the learning rate of the ``AdamW`` optimizer
+        N_HIDDEN = 256,  # Number of neurons in the hidden layers.
         N_EPISODES=10_000,  # Number of episodes performed during training.
     )
 
@@ -239,14 +251,13 @@ if __name__ == "__main__":
     model = nn.Sequential(
         nn.Linear(params["NUM_OBS"], params["N_HIDDEN"]),
         nn.ReLU(),
-        # nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
-        # nn.ReLU(),
-        # nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
-        # nn.ReLU(),
         nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
         nn.ReLU(),
-        nn.Linear(params["N_HIDDEN"], params["NUM_ACT"]),
-        nn.Tanh()
+        nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
+        nn.ReLU(),
+        nn.Linear(params["N_HIDDEN"], params["N_HIDDEN"]),
+        nn.ReLU(),
+        nn.Linear(params["N_HIDDEN"], params["NUM_ACT"])
     )
 
     gamestate = GameState()
