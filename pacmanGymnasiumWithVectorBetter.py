@@ -15,12 +15,11 @@ from pacman import GameState, readCommand, Directions
 def generate_neighbour_cells(state: GameState, i: int, j: int) -> Set[Tuple[int, int]]:
     return {(x, y) for x, y in [(i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)] if not state.hasWall(x, y)}
 
-def compute_length_modifier (state: GameState) -> Tuple[int, int]:
+def compute_length_modifiers(state: GameState) -> Tuple[int, int]:
     """length modifier is: distance to closest food - distance to closest ghost, computed using BFS."""
-    if np.sum(np.array(state.getFood().data, dtype="int64")) == 0:
-        return 0 # We have won, so we dont care anymore!
-    
     min_distance_to_food, min_distance_to_ghost = None, None
+    if np.sum(np.array(state.getFood().data, dtype="int64")) == 0:
+        min_distance_to_food = 0 # We have won, so we dont care anymore!
 
     fronteir = {state.getPacmanPosition()}
     visited = set()
@@ -39,7 +38,7 @@ def compute_length_modifier (state: GameState) -> Tuple[int, int]:
         # Generate next fronteir
         fronteir = reduce(lambda x, y: x | y, [generate_neighbour_cells(state, i, j) for (i, j) in fronteir]) - visited
 
-    return (min_distance_to_ghost - min_distance_to_food)
+    return (min_distance_to_ghost, min_distance_to_food)
 
 class PacmanEnv(gym.Env):
 
@@ -50,7 +49,7 @@ class PacmanEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(5)
         self._h, self._w = layout.height, layout.width
         self.state = None
-        self.length_modifier = None
+        self.length_modifiers = None
         self.steps = 0
 
     def _get_info(self) -> dict:
@@ -91,9 +90,10 @@ class PacmanEnv(gym.Env):
         self.state = self.state.generatePacmanSuccessor(direction) 
         observation = self._get_obs(self.state)
 
-        # length_modifier_change = compute_length_modifier(self.state) - self.length_modifier
-        reward = self.state.data.scoreChange # + length_modifier_change # This is the change in score from the action
-        # self.length_modifier += length_modifier_change
+        # TODO
+        new_length_modifiers = compute_length_modifiers(self.state)
+        reward = self.state.data.scoreChange + (new_length_modifiers[0] - self.length_modifiers[0]) + (self.length_modifiers[1] - new_length_modifiers[1]) # This is the change in score from the action
+        self.length_modifiers = new_length_modifiers
 
         terminated = self.state.isLose() or self.state.isWin()
         truncated = self.steps >= self.max_steps
@@ -107,7 +107,8 @@ class PacmanEnv(gym.Env):
         super().reset()
         self.steps = 0
         self.state = deepcopy(self.initial_state)
-        # self.length_modifier = compute_length_modifier(self.state)
+        # TODO:
+        self.length_modifiers = compute_length_modifiers(self.state)
 
         return self._get_obs(self.state), self._get_info()
 
